@@ -142,6 +142,9 @@ export class Mesh {
     for (const member of members) {
       if (member.orca_node_id === this.self.id) continue;
       if (this.isTombstoned(member.orca_node_id)) continue;
+      // A node this one may not dial is not a candidate either: it would list
+      // forever without ever being contacted (§6.5).
+      if (!this.ctx.trust.outboundAllows(member.orca_node_id)) continue;
       // A third-party roster is only a hint for nodes we have never met (§7.1).
       // Once a record exists, only that node's own signed self-description may
       // update its endpoints or profile; otherwise any member could redirect
@@ -173,6 +176,11 @@ export class Mesh {
     const answer = await OrcaNode.contact(this.ctx, url, known?.id ?? "", this.helloRequest());
     // This node's own address under another name.
     if (answer.from === this.self.id) return this.self;
+    // The id is only known once it answered, so a refused node gets one hello and
+    // no more: it is neither recorded nor listed (§6.5).
+    if (!this.ctx.trust.outboundAllows(answer.from)) {
+      throw new PodError("peer_not_permitted", `${answer.from} may not be dialed by this node`);
+    }
     const self = SelfDescriptionSchema.parse(answer.body.self);
     const overLoopback = isLoopbackUrl(url);
     const endpoints = await this.screenDeclared(answer.from, self.endpoints, overLoopback);
@@ -289,6 +297,10 @@ export class Mesh {
   /** One hello to a node already in the table; a failure is counted once per node, not once per address. */
   private async greet(node: OrcaNode, request: HelloRequest): Promise<void> {
     const { clock } = this.ctx;
+    // A node this one may not dial is not greeted at all (§6.5): no heartbeat, no
+    // task, no file. It stays in the table if it was known, so the panel can show
+    // why it is silent, but this node never opens a connection to it.
+    if (!this.ctx.trust.outboundAllows(node.id)) return;
     try {
       const answer = await node.hello(request, this.current.heartbeatTimeoutMs);
       // Its addresses stay the ones it declared when it greeted us; an answer does not move them.

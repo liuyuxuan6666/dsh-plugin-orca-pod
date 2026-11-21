@@ -40,6 +40,7 @@ describe("settings", () => {
       peers: [],
       task_timeout_s: 3600,
       max_workspace_bytes: 5 * 1024 ** 3,
+      trust: { inbound: "allow", outbound: "allow", peers: {} },
     });
   });
 
@@ -66,6 +67,7 @@ describe("settings", () => {
       peers: [],
       task_timeout_s: 3600,
       max_workspace_bytes: 5 * 1024 ** 3,
+      trust: { inbound: "allow", outbound: "allow", peers: {} },
     });
   });
 

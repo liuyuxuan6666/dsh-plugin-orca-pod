@@ -75,6 +75,10 @@ export class PanelModel {
         ...view,
         busy_from: view.busy === null ? null : labels.label(view.busy.origin_orca_node),
         unreachable: node.unreachable,
+        // The verdicts that apply, so the panel can show why a node is silent (§6.5).
+        ...(current === null
+          ? { inbound: "allow" as const, outbound: "allow" as const }
+          : current.trust.verdictsFor(node.id)),
       };
     };
     return {

@@ -17,6 +17,10 @@ export const POD_ERROR_STATUS = {
   bad_proof: 401,
   // Authorization.
   not_task_origin: 403,
+  /** A peer this node does not trust asked it for something: its `inbound` verdict is `deny` (§6.5). */
+  peer_blocked: 403,
+  /** This node is not allowed to call that peer: its `outbound` verdict is `deny` (§6.5). */
+  peer_not_permitted: 403,
   /** A local route asked from another machine, or through a proxy (§5.6). */
   not_local: 403,
   /** A local blob publish asked for a path outside the workgroup workspace (§5.6). */

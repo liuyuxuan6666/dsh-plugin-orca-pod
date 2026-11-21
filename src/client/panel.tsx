@@ -228,6 +228,7 @@ export function Panel({ overlay = false }: { overlay?: boolean }) {
         key={wizard ? "wizard" : "settings"}
         config={config}
         self={snap.state.self}
+        members={snap.state.members}
         wizard={wizard}
         onDone={() => setView("status")}
         frame={frameFor(overlay, wizard ? t("nav") : t("settings"))}

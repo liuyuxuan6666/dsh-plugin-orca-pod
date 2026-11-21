@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-orca-pod",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Orca pod: full-mesh agent node for DeepSeek Harness",
   "type": "module",
   "engines": {

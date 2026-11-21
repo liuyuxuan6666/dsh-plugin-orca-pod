@@ -36,6 +36,39 @@
   line-height: 18px;
 }
 
+/* One row per peer in the trust section: name, short id, two verdict selects. */
+.trustList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0 6px;
+}
+
+.trustPeer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.trustName {
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trustId {
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--dsw-alias-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
 .groupCard {
   box-sizing: border-box;
   min-width: 0;

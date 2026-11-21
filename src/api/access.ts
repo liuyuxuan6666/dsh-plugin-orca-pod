@@ -4,6 +4,7 @@ import type { IncomingHttpHeaders } from "node:http";
 import { isLoopbackHost } from "@deepseek-ai/dsh-host-webserver";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 
+import type { TrustPolicy } from "../core/trust.ts";
 import { PodError } from "../core/errors.ts";
 import { verifyWithNodeId } from "../core/identity.ts";
 import { OrcaNodeIdSchema, WorkgroupIdSchema, type OrcaNodeId, type WorkgroupId } from "../core/ids.ts";
@@ -152,6 +153,11 @@ export class AccessPolicy {
     private readonly key: Buffer,
     /** What a local route takes (`local`). */
     private readonly localToken: string,
+    /**
+     * Who may call this node at all (§6.5). Checked after the proofs, so a refused
+     * peer learns only that it was refused, and never what the node serves.
+     */
+    private readonly trust: TrustPolicy,
   ) {}
 
   install(app: FastifyInstance): void {
@@ -219,6 +225,11 @@ export class AccessPolicy {
     const proof = Buffer.from(parsed.proof, "base64url");
     if (expected.length !== proof.length || !timingSafeEqual(expected, proof)) {
       throw new PodError("bad_proof", "workgroup proof does not verify");
+    }
+    // A peer this node refuses gets nothing: no greeting, no task, no file (§6.5).
+    // Checked before the nonce is spent, so a blocked peer cannot exhaust the cache.
+    if (!this.trust.inboundAllows(parsed.orcaNodeId)) {
+      throw new PodError("peer_blocked", `${parsed.orcaNodeId} is not permitted to call this node`);
     }
     if (!this.nonces.remember(`${parsed.orcaNodeId}:${claim.nonce}`)) {
       throw new PodError("nonce_replay", "nonce already used");

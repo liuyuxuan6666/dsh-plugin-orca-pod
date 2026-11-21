@@ -310,7 +310,7 @@ origin: 终态 → 合并成一条 notice 交还发起会话 → 停止轮询
 - 单机 SQLite：`<data_root>/tasks.db`，Node 内置 `node:sqlite`，WAL，`synchronous=NORMAL`，一个进程独占写，不做连接池/服务。
 - 表：`tasks`、`dispatches` 同构 `(task_id TEXT PRIMARY KEY, payload TEXT, updated_at TEXT)`；`file_blobs` 为 `(blob_id TEXT PRIMARY KEY, path TEXT, size INTEGER, expires_at TEXT)`。任务表存 `TaskView`；`updated_at` 取 `status.timestamp`。
 - 每次状态变迁写库；`tasks/get` 先查内存再回落 SQLite。进程启动时非终态 task 标 `failed(node_restart)`。备份 = 拷贝 db（WAL 先 checkpoint）；落盘失败只记 warning。
-- 可见性：同 workgroup 凭 `task_id` 可读，没有列表接口——**task_id 就是句柄，泄露 = 结果泄露**。origin 额外拥有恢复与取消权。同组是信任域，没有 per-task ACL。
+- 可见性：只有 task 的 origin（和运行它的本机）能读，**task_id 不再是同组通行证**（0.2.0 起，§6.5）；没有列表接口。origin 额外拥有恢复与取消权。同组仍是信任域，没有 per-task ACL。
 
 ### 4.5 文件通道（blob）
 
@@ -503,11 +503,16 @@ target 校验顺序：任务存在且非终态（404/400）→ 调用者是 orig
 
 ### 6.5 授权矩阵
 
+默认同组对等：任意成员可派任务、可读任务、可读已发布的 blob。`trust`（§6.8）按方向收紧之后，下表「同组」的前提是对方的 `inbound` 判定为 `allow`，且本节点的 `outbound` 判定也为 `allow`。
+
 | 操作 | 谁能做 | 依据 |
 | --- | --- | --- |
-| 派任务 | 同组任意节点 | 两样证明；不做 per-node 白名单 |
-| 读任务/读 blob | 同组凭 id | 无 per-task/per-blob ACL |
+| 派任务 | 本节点 `trust.inbound` 允许的同组成员 | 两样证明 + 信任判定；除信任开关外没有角色 |
+| 读任务 | 只有 task 的 origin（及本机） | `403 not_task_origin`（0.2.0 起；此前同组凭 id 可读） |
+| 读 blob | 发布方 `trust.inbound` 允许的成员 | `403 peer_blocked` |
 | 取消、恢复 | 只有 task 的 origin（及本机） | `403 not_task_origin` |
+| 问候（hello） | `trust.inbound` 允许的成员 | `403 peer_blocked` |
+| 拨号（任何出站调用） | 本节点 `trust.outbound` 允许的节点 | 本机即拒，`403 peer_not_permitted` |
 | 面板 API | DSH web 的 owner 会话 | `connection.admit`，不验节点签名 |
 | 权限上限 | 继承 origin 会话，本机上限再降 | §6.4 |
 | 登记本机文件 | 只有本机（进程内或 local 路由） | 无成员路由 |
@@ -524,6 +529,34 @@ target 校验顺序：任务存在且非终态（404/400）→ 调用者是 orig
 ### 6.7 审计
 
 不做持久审计落盘：任务记录、`dispatches`、DSH 会话记录已经能回答「谁在什么时候派了什么、结果如何」。排查靠现有记录；合规审计属于部署层外挂。
+
+### 6.8 信任：把对等的网变成单向的调用关系（0.2.0）
+
+`trust` 是节点设置，用来把「同组即对等」改成「我允许谁靠近我」。两个方向各自带一个默认值和按节点的覆盖：
+
+```json
+{
+  "inbound": "allow",
+  "outbound": "allow",
+  "peers": { "<orca_node_id>": { "inbound": "deny", "outbound": "allow" } }
+}
+```
+
+- `inbound`：别人调用本节点。判定为 `deny` 的对端，`/cluster/hello`、`/a2a`、`/blobs/{id}` 一律 `403 peer_blocked`。判定在两项证明之后、nonce 入账之前，所以被拒的对端学不到任何东西，也消耗不了 nonce 缓存。
+- `outbound`：本节点调用别人。判定为 `deny` 的对端不会被拨号——心跳、任务、文件都不发；`sendTask`/`getTask`/`cancelTask`/`fetchBlob` 在第一条报文离开之前就以 `403 peer_not_permitted` 失败，目录里也不会把它当候选。
+- 本节点自己永远双向 `allow`；没有角色、没有组，开关之外没有层级。
+- 与其它节点设置一样，只在节点启动时读取：保存并重启后生效。
+
+两种典型形态：
+
+| 形态 | 控制端 | 受控端 | 效果 |
+| --- | --- | --- | --- |
+| 对等（默认） | 全 `allow` | 全 `allow` | 互相能派任务，0.1.x 的行为 |
+| 单向借用 | 全 `allow` | `inbound` 只 allow 控制端、`outbound` 全 `deny` | 控制端能派任务、取结果；受控端不向控制端发起任何连接，也读不到控制端的任务与文件 |
+
+单向形态下受控端有两道墙：任务会话本来就只被授予 `fetch`/`publish`（§5.6），没有 `send`；`outbound` 再把 `fetch` 通往控制端的那条路堵上。网络层由防火墙/组网 ACL 保证时，才是「连都连不上」。
+
+它不是沙箱，也不替代沙箱：`trust` 是应用层的准入判定，管的是「谁可以让我的 agent 干活」和「我的 agent 可以去敲谁的门」，不是「任务能读写哪些文件」——后者仍由 §6.4 的权限模式与本机权限上限决定。
 
 ## 7. 可靠性
 

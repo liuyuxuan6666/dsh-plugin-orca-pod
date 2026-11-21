@@ -327,6 +327,16 @@ export class OrcaNode {
   // ---- calls ----
 
   /**
+   * Refuse a call this node's settings do not permit (§6.5). The check sits before
+   * the first packet, not in the peer: a refused node never learns it was called.
+   */
+  private assertOutbound(): void {
+    if (!this.ctx.trust.outboundAllows(this.id)) {
+      throw new PodError("peer_not_permitted", `${this.id} may not be dialed by this node`);
+    }
+  }
+
+  /**
    * Greet the node (§3.3): try its addresses in order (IPv4/IPv6, LAN, public),
    * because one unreachable address must not make the node look offline (§7.7).
    * The one that answers is remembered. A node that answers with a refusal has
@@ -347,6 +357,7 @@ export class OrcaNode {
    * answered for all of its addresses; any other moves on to the next address.
    */
   private async dial<T>(attempt: (endpoint: string) => Promise<T>, final: (error: unknown) => boolean): Promise<T> {
+    this.assertOutbound();
     let unreachable: unknown;
     for (const endpoint of await this.dialOrder()) {
       try {
@@ -375,6 +386,8 @@ export class OrcaNode {
     input: SubmitTaskInput,
     options: { signal?: AbortSignal; agentId?: SessionId } = {},
   ): Promise<TaskView> {
+    // Before the state, so a refused node reports the rule and not "offline".
+    this.assertOutbound();
     const { state } = this;
     if (state !== "online") throw new PodError("peer_not_online", `peer ${this.id} is ${state}`);
     const view = await this.rpc({ method: "message/send", params: input }, options.signal);

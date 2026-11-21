@@ -13,6 +13,7 @@ import { DEFAULT_PORT } from "../core/constants.ts";
 import { HarnessError } from "@deepseek-ai/dsh-error";
 import { ModelSettingsSchema } from "../executor/model-catalog.ts";
 import { TaskSettingsSchema } from "../task/record.ts";
+import { TrustSettingsSchema } from "../core/trust.ts";
 import { WorkgroupIdSchema } from "../core/ids.ts";
 import { errorMessage } from "../core/errors.ts";
 import { isRecord } from "../core/schema.ts";
@@ -49,6 +50,12 @@ const SettingsSchema = z.object({
   endpoints: EndpointsSchema.default([]),
   /** Peers joined on startup. */
   peers: PeersSchema.default([]),
+  /**
+   * Who may call this node and which nodes it may call (§6.5): the default for
+   * peers without an entry, and per-node overrides. `allow` everywhere keeps a
+   * flat mesh, which is what an install that never opens this setting has.
+   */
+  trust: TrustSettingsSchema.prefault({}),
   acp: AcpExecutorConfigSchema.optional(),
   ...TaskSettingsSchema.shape,
   ...ModelSettingsSchema.shape,
@@ -84,6 +91,8 @@ export const PanelPatchSchema = z.object({
   bind_host: clearable(shape.bind_host.unwrap()),
   port: clearable(shape.port.unwrap()),
   endpoints: clearable(shape.endpoints.unwrap()),
+  /** Whole-setting replacement: `null` clears every override back to "allow" (§6.5). */
+  trust: clearable(shape.trust.unwrap()),
   permission_mode: clearable(shape.permission_mode.unwrap()),
   task_timeout_s: clearable(shape.task_timeout_s.unwrap()),
   max_workspace_bytes: clearable(shape.max_workspace_bytes.unwrap()),

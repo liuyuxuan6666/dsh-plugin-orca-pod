@@ -38,6 +38,12 @@ interface Limit {
 /** `[setting, label key, [value, text] options, hint key]`. */
 type SelectField = [SelectKey, string, Array<[string, string]>, string?];
 
+/** One direction of a peer's trust override: the saved `allow`/`deny`, or `""` to follow the default. */
+type TrustPeerState = { inbound: string; outbound: string };
+
+/** The trust section's form state: the two defaults and one row per peer this node knows (§6.5). */
+type TrustFormState = { inbound: string; outbound: string; peers: Record<string, TrustPeerState> };
+
 /** The form's text state: every field as the user typed it. */
 type FormState = {
   workgroup_id: string;
@@ -46,9 +52,10 @@ type FormState = {
   bind_host: string;
   port: string;
   endpoints: string[];
+  trust: TrustFormState;
 } & Record<LimitKey | SelectKey, string>;
 
-type TextKey = Exclude<keyof FormState, "endpoints">;
+type TextKey = Exclude<keyof FormState, "endpoints" | "trust">;
 
 /** Props an `<input>`/`<select>` needs to edit one text field. */
 type Bind = (key: TextKey) => {
@@ -101,6 +108,7 @@ function choiceTexts(config: ChoiceSource): Record<SelectKey, string> {
 }
 
 function initialForm(config: PodConfigView, self: PodPeer | null): FormState {
+  const trust = config.settings.trust;
   return {
     workgroup_id: config.settings.workgroup_id ?? DEFAULT_WORKGROUP,
     password: "",
@@ -109,6 +117,16 @@ function initialForm(config: PodConfigView, self: PodPeer | null): FormState {
     bind_host: config.settings.bind_host,
     port: String(config.port),
     endpoints: config.suggested_endpoints.length > 0 ? config.suggested_endpoints : [""],
+    trust: {
+      inbound: trust.inbound,
+      outbound: trust.outbound,
+      peers: Object.fromEntries(
+        Object.entries(trust.peers).map(([id, verdicts]) => [
+          id,
+          { inbound: verdicts.inbound ?? "", outbound: verdicts.outbound ?? "" },
+        ]),
+      ),
+    },
     ...limitTexts(config.settings),
     ...choiceTexts(config),
   };
@@ -149,6 +167,22 @@ function choiceValues(form: FormState, config: ChoiceSource): Partial<Record<Sel
   return values;
 }
 
+/**
+ * The trust section as the host takes it: the two defaults and the peers whose
+ * verdict is not the default. A row left on "default" is dropped, so the stored
+ * setting stays short and a later default change applies to it too.
+ */
+function trustValues(form: FormState): PanelPatch["trust"] {
+  const peers: Record<string, { inbound?: string; outbound?: string }> = {};
+  for (const [id, verdicts] of Object.entries(form.trust.peers)) {
+    const entry: { inbound?: string; outbound?: string } = {};
+    if (verdicts.inbound !== "") entry.inbound = verdicts.inbound;
+    if (verdicts.outbound !== "") entry.outbound = verdicts.outbound;
+    if (entry.inbound !== undefined || entry.outbound !== undefined) peers[id] = entry;
+  }
+  return { inbound: form.trust.inbound, outbound: form.trust.outbound, peers } as PanelPatch["trust"];
+}
+
 /** Form text to the patch the host validates; `null` clears a field. Returns `{ error }` for input it cannot convert. */
 function buildPatch(
   form: FormState,
@@ -171,6 +205,7 @@ function buildPatch(
     endpoints: addresses.length > 0 ? addresses : null,
     ...(form.password.length > 0 ? { workgroup_password: form.password } : {}),
     ...limits.values,
+    trust: trustValues(form),
     ...choiceValues(form, config),
   } as PanelPatch;
   return { patch };
@@ -226,7 +261,7 @@ function Group({ title, danger, children }: { title: string; danger?: boolean; c
 }
 
 /** Native `<select>` in DSH's field frame; a saved value the list does not know stays selectable. */
-function Select({ options, ...props }: ReturnType<Bind> & { options: Array<[string, string]> }) {
+function Select({ options, ...props }: ReturnType<Bind> & { options: Array<[string, string]>; "aria-label"?: string }) {
   const known = options.some(([value]) => value === props.value);
   const shown = known ? options : [...options, [props.value, props.value] as [string, string]];
   return (
@@ -357,9 +392,88 @@ function AdvancedSection({ bind, config }: { bind: Bind; config: ChoiceSource })
   );
 }
 
+/**
+ * Who may call this node and which nodes it may call (§6.5): two defaults, then
+ * one row per peer this node knows. A row left on the default is not written to
+ * the settings file, so changing a default later still applies to it.
+ */
+function TrustSection({
+  form,
+  set,
+  members,
+}: {
+  form: FormState;
+  set: <K extends keyof FormState>(key: K, value: FormState[K]) => void;
+  members: PodPeer[];
+}) {
+  const verdicts: Array<[string, string]> = [
+    ["allow", t("trustAllow")],
+    ["deny", t("trustDeny")],
+  ];
+  const inherited: Array<[string, string]> = [["", t("trustInherit")], ...verdicts];
+  const setDefault = (direction: "inbound" | "outbound", value: string) =>
+    set("trust", { ...form.trust, [direction]: value });
+  const setPeer = (id: string, direction: "inbound" | "outbound", value: string) => {
+    const current = form.trust.peers[id] ?? { inbound: "", outbound: "" };
+    set("trust", {
+      ...form.trust,
+      peers: { ...form.trust.peers, [id]: { ...current, [direction]: value } },
+    });
+  };
+  return (
+    <Group title={t("cfgTrust")}>
+      <p className={css.groupHint}>{t("cfgTrustHint")}</p>
+      <SettingRow label={t("cfgTrustInbound")} hint={t("cfgTrustInboundHint")}>
+        <Select
+          options={verdicts}
+          value={form.trust.inbound}
+          onChange={(event) => setDefault("inbound", event.target.value)}
+        />
+      </SettingRow>
+      <SettingRow label={t("cfgTrustOutbound")} hint={t("cfgTrustOutboundHint")}>
+        <Select
+          options={verdicts}
+          value={form.trust.outbound}
+          onChange={(event) => setDefault("outbound", event.target.value)}
+        />
+      </SettingRow>
+      {members.length === 0 ? (
+        <p className={css.groupHint}>{t("trustNoPeers")}</p>
+      ) : (
+        <div className={css.trustList}>
+          {members.map((peer) => {
+            const row = form.trust.peers[peer.orca_node_id] ?? { inbound: "", outbound: "" };
+            return (
+              <div key={peer.orca_node_id} className={css.trustPeer}>
+                <span className={css.trustName} title={peer.orca_node_id}>
+                  {peer.display_name}
+                </span>
+                <span className={css.trustId}>
+                  {peer.orca_node_id.slice(0, 6)}…{peer.orca_node_id.slice(-4)}
+                </span>
+                <Select
+                  options={inherited}
+                  value={row.inbound}
+                  aria-label={`${peer.display_name} ${t("cfgTrustInbound")}`}
+                  onChange={(event) => setPeer(peer.orca_node_id, "inbound", event.target.value)}
+                />
+                <Select
+                  options={inherited}
+                  value={row.outbound}
+                  aria-label={`${peer.display_name} ${t("cfgTrustOutbound")}`}
+                  onChange={(event) => setPeer(peer.orca_node_id, "outbound", event.target.value)}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Group>
+  );
+}
+
 /** Lays out a view: its body, and the footer that stays visible under it. */
 export type Frame = (body: ReactNode, footer: ReactNode) => ReactNode;
-
 /** The form's state and actions, apart from how it is drawn. */
 function useConfigForm(config: PodConfigView, self: PodPeer | null, wizard: boolean, onDone: () => void) {
   const { busy, actionError } = useStore();
@@ -448,6 +562,7 @@ function ConfigFooter({
 export function ConfigForm({
   config,
   self,
+  members,
   wizard,
   onDone,
   frame,
@@ -455,6 +570,8 @@ export function ConfigForm({
   config: PodConfigView;
   /** This node's own record while it runs. */
   self: PodPeer | null;
+  /** The peers this node knows: the rows of the trust section (§6.5). */
+  members: PodPeer[];
   wizard: boolean;
   onDone: () => void;
   frame: Frame;
@@ -466,6 +583,7 @@ export function ConfigForm({
       {wizard ? <p className={css.intro}>{t("cfgWizardIntro")}</p> : null}
       <IdentitySection bind={bind} wizard={wizard} />
       <NetworkSection form={form} set={set} bind={bind} config={config} busy={busy} />
+      <TrustSection form={form} set={set} members={members} />
       <AdvancedSection bind={bind} config={config} />
       {wizard ? null : <ResetGroup busy={busy} onReset={() => run("reset", {})} />}
     </form>

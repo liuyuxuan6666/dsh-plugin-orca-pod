@@ -7,6 +7,7 @@ import type { OrcaNodeId } from "../src/core/ids.ts";
 import { wg } from "./fixtures/ids.ts";
 import { generateNodeIdentity } from "../src/plugin/stores.ts";
 import { AccessPolicy, parseAuthHeader } from "../src/api/access.ts";
+import { parseTrust, TrustPolicy } from "../src/core/trust.ts";
 import { deriveWorkgroupKey } from "../src/plugin/pod.ts";
 
 const WORKGROUP_ID = wg("orca-dev");
@@ -74,7 +75,13 @@ function receiver(options: { self?: OrcaNodeId; access?: "member" | "hello" } = 
     done(null, undefined);
   });
   app.setErrorHandler((error, _request, reply) => reply.code(401).send({ code: (error as PodError).code }));
-  new AccessPolicy(options.self ?? TARGET, WORKGROUP_ID, KEY, "local-token").install(app);
+  new AccessPolicy(
+    options.self ?? TARGET,
+    WORKGROUP_ID,
+    KEY,
+    "local-token",
+    new TrustPolicy(parseTrust({}), options.self ?? TARGET),
+  ).install(app);
   app.post(PATH, { config: { access: options.access ?? "member" } }, (request) => ({
     orcaNodeId: request.auth.orcaNodeId,
   }));

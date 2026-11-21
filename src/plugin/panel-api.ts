@@ -9,6 +9,7 @@ import type { LlmReasoningEffortInfo } from "@deepseek-ai/dsh-llm";
 import type { SandboxMode } from "@deepseek-ai/dsh-sandbox";
 import { z } from "zod";
 
+import type { Verdict } from "../core/trust.ts";
 import type { PeerView } from "../mesh/wire.ts";
 import type { PanelPatch, Settings } from "../node/settings.ts";
 import type { DispatchEntry, TaskState, TaskView } from "../task/wire.ts";
@@ -18,7 +19,14 @@ import type { DispatchEntry, TaskState, TaskView } from "../task/wire.ts";
  * for. `unreachable`: this node hears it but cannot connect to it, so traffic
  * flows one way only (§3.3); this node's own observation, not part of the wire view.
  */
-export type PodPeer = PeerView & { busy_from: string | null; unreachable: boolean };
+export type PodPeer = PeerView & {
+  busy_from: string | null;
+  unreachable: boolean;
+  /** What this node accepts from the peer (§6.5): `deny` answers it `403 peer_blocked`. */
+  inbound: Verdict;
+  /** Whether this node may dial the peer (§6.5): `deny` never opens a connection to it. */
+  outbound: Verdict;
+};
 
 /** One permission request waiting for the human. */
 export interface PodApproval {

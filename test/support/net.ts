@@ -4,6 +4,7 @@ import { afterEach, vi } from "vitest";
 
 import { FileBlobRegistry } from "../../src/core/blobs.ts";
 import { parseSettings } from "../../src/node/settings.ts";
+import { parseTrust, TrustPolicy } from "../../src/core/trust.ts";
 import type { OrcaNodeId, WorkgroupId } from "../../src/core/ids.ts";
 import type { PeerView } from "../../src/mesh/wire.ts";
 import { Gateway } from "../../src/api/gateway.ts";
@@ -76,6 +77,7 @@ export class TestNet {
     const db = openDb();
     const blobs = new FileBlobRegistry(db, tempDir("orca-blobs-"));
     const tasks = createTestRunner();
+    const trust = new TrustPolicy(parseTrust({}), identity.orcaNodeId);
     const context = new MeshContext(
       identity,
       this.workgroup,
@@ -83,6 +85,7 @@ export class TestNet {
       new DispatchLog(db),
       blobs,
       tasks,
+      trust,
       { warn() {} },
       { fetch: this.fetchFrom(identity.orcaNodeId), clock: this.clock },
     );
@@ -99,6 +102,7 @@ export class TestNet {
       identity,
       randomBytes(16).toString("base64url"),
       tempDir("orca-workspace-"),
+      trust,
     );
     const [url] = endpoints;
     if (url === undefined) throw new Error("a net node needs an address");

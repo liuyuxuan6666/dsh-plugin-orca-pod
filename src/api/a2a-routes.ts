@@ -13,7 +13,11 @@ const METHODS: ReadonlySet<unknown> = new Set(A2ARequestSchema.options.map((opti
 
 /** The A2A JSON-RPC surface (§4.7): submit, read and cancel tasks. */
 export class A2aRoutes {
-  constructor(private readonly tasks: SingleSlotTaskRunner) {}
+  constructor(
+    private readonly tasks: SingleSlotTaskRunner,
+    /** This node: the one caller besides a task's origin that may read it. */
+    private readonly selfOrcaNodeId: OrcaNodeId,
+  ) {}
 
   register(app: FastifyInstance): void {
     app.post("/a2a", { config: { access: "member", rpc: true } }, async (request) => {
@@ -43,6 +47,15 @@ export class A2aRoutes {
         const { id } = call.params;
         const view = this.tasks.get(id);
         if (!view) throw new PodError("task_not_found", `unknown task ${id}`);
+        // Reading used to be open to the whole workgroup, keyed by a task id nobody
+        // could guess (§5.5). Only the origin that dispatched the task — and this
+        // node itself, whose panel reads its own tasks over this route — may read
+        // it now: a peer that may not dispatch cannot use a leaked id to read the
+        // result of somebody else's task either.
+        const origin = view.metadata?.pod?.origin_orca_node;
+        if (caller !== origin && caller !== this.selfOrcaNodeId) {
+          throw new PodError("not_task_origin", `task ${id} belongs to another origin`);
+        }
         return view;
       }
       case "tasks/cancel":

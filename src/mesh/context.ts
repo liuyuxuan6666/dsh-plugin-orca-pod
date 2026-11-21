@@ -2,6 +2,7 @@ import type { FileBlobRegistry } from "../core/blobs.ts";
 import type { NodeLogger } from "../core/events.ts";
 import type { NodeIdentity } from "../core/identity.ts";
 import type { WorkgroupId } from "../core/ids.ts";
+import type { TrustPolicy } from "../core/trust.ts";
 import type { DispatchLog } from "../task/dispatch-log.ts";
 import type { SingleSlotTaskRunner } from "../task/runner.ts";
 import { HttpPeerClient, nodeFetch, type FetchLike } from "./peer-client.ts";
@@ -45,6 +46,8 @@ export class MeshContext {
     readonly blobs: FileBlobRegistry,
     /** The tasks this node runs; a node that is this one reports its slot from here (§6.9). */
     readonly tasks: SingleSlotTaskRunner,
+    /** Who may call this node, and which nodes it may call (§6.5). */
+    readonly trust: TrustPolicy,
     readonly logger: NodeLogger,
     options: MeshContextOptions = {},
   ) {

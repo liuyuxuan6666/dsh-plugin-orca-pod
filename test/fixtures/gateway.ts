@@ -4,6 +4,7 @@ import { afterEach } from "vitest";
 
 import { FileBlobRegistry } from "../../src/core/blobs.ts";
 import { parseSettings } from "../../src/node/settings.ts";
+import { parseTrust, TrustPolicy } from "../../src/core/trust.ts";
 import type { NodeIdentity } from "../../src/core/identity.ts";
 import { buildAuthHeader, newNonce } from "../../src/core/signing.ts";
 import type { RuntimeInfo } from "../../src/mesh/wire.ts";
@@ -68,6 +69,8 @@ export type GatewayHarnessOptions = {
   publishRoot?: string;
   workgroup?: WorkgroupId;
   displayName?: string;
+  /** This node's trust setting (§6.5); everything allowed unless a test says otherwise. */
+  trust?: unknown;
 };
 
 /** A gateway built from real parts, on its own identity and a table with only itself in it. No outbound call succeeds. */
@@ -80,6 +83,7 @@ export function createGatewayHarness(options: GatewayHarnessOptions = {}): Gatew
   const publishRoot = options.publishRoot ?? tempDir("orca-workspace-");
   const localToken = randomBytes(16).toString("base64url");
   const tasks = options.tasks ?? createTestRunner();
+  const trust = new TrustPolicy(parseTrust(options.trust), identity.orcaNodeId);
   const context = new MeshContext(
     identity,
     workgroup,
@@ -87,6 +91,7 @@ export function createGatewayHarness(options: GatewayHarnessOptions = {}): Gatew
     new DispatchLog(db),
     blobs,
     tasks,
+    trust,
     { warn() {} },
     {
       fetch: async () => {
@@ -100,7 +105,7 @@ export function createGatewayHarness(options: GatewayHarnessOptions = {}): Gatew
     runtime: RUNTIME,
     max_task_ttl_s: parseSettings({}).task_timeout_s,
   });
-  const gateway = new Gateway(mesh, tasks, workgroup, key, identity, localToken, publishRoot);
+  const gateway = new Gateway(mesh, tasks, workgroup, key, identity, localToken, publishRoot, trust);
   const signAs: GatewayHarness["signAs"] = (caller, method, path, extra = {}) =>
     buildAuthHeader(
       caller,

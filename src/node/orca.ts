@@ -12,6 +12,7 @@ import { join } from "node:path";
 
 import { Gateway } from "../api/gateway.ts";
 import { FileBlobRegistry } from "../core/blobs.ts";
+import { TrustPolicy } from "../core/trust.ts";
 
 import type { NodeLogger } from "../core/events.ts";
 import { shortenNodeId, type NodeIdentity } from "../core/identity.ts";
@@ -99,6 +100,8 @@ export class Orca {
   readonly tasks: SingleSlotTaskRunner;
   /** Workspace directories, for UI browsing. */
   readonly workspace: Workspace;
+  /** Who may call this node, and which nodes this one may call (§6.5). */
+  readonly trust: TrustPolicy;
   /** The files this node published (§5.6): the `orca_pod` tool publishes into it, members fetch from the gateway. */
   private readonly blobs: FileBlobRegistry;
 
@@ -159,13 +162,33 @@ export class Orca {
       identity.orcaNodeId,
       logger,
     );
-    this.context = new MeshContext(identity, workgroupId, key, this.dispatches, this.blobs, this.tasks, logger, {
-      fetch: options.fetch,
-    });
+    this.trust = new TrustPolicy(settings.trust, identity.orcaNodeId);
+    this.context = new MeshContext(
+      identity,
+      workgroupId,
+      key,
+      this.dispatches,
+      this.blobs,
+      this.tasks,
+      this.trust,
+      logger,
+      {
+        fetch: options.fetch,
+      },
+    );
     this.mesh = new Mesh(this.context, this.describeSelf(Orca.endpointsFrom(settings, settings.port)), {
       timings: options.timings,
     });
-    this.gateway = new Gateway(this.mesh, this.tasks, workgroupId, key, identity, this.localToken, this.workspace.root);
+    this.gateway = new Gateway(
+      this.mesh,
+      this.tasks,
+      workgroupId,
+      key,
+      identity,
+      this.localToken,
+      this.workspace.root,
+      this.trust,
+    );
 
     // A new catalog changes what this node announces about itself (§6.15).
     this.models.changes.subscribe(() => this.mesh.self.describe(this.describeSelf(this.mesh.self.endpoints)));

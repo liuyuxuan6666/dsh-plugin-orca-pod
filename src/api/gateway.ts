@@ -8,6 +8,7 @@ import { PodError, POD_ERROR_STATUS } from "../core/errors.ts";
 import type { Mesh } from "../mesh/mesh.ts";
 import type { WorkgroupId } from "../core/ids.ts";
 import type { NodeIdentity } from "../core/identity.ts";
+import type { TrustPolicy } from "../core/trust.ts";
 import type { SingleSlotTaskRunner } from "../task/runner.ts";
 import { A2aRoutes } from "./a2a-routes.ts";
 import { AccessPolicy, parseAuthHeader } from "./access.ts";
@@ -44,6 +45,8 @@ export class Gateway {
     localToken: string,
     /** Directory that `/local/blobs` may publish files from (the workgroup workspace). */
     publishRoot: string,
+    /** Who may call this node (§6.5); a refused peer is answered `403 peer_blocked`. */
+    trust: TrustPolicy,
   ) {
     // https only (§7.7): the certificate is self-signed over the node's identity key,
     // so a caller pins it to the node id it dials. Nothing is served in plaintext,
@@ -60,9 +63,9 @@ export class Gateway {
     this.installBodyParsers();
     this.app.setErrorHandler((error, request, reply) => this.handleError(error, request, reply));
     this.app.addHook("onSend", async (request, reply, payload) => this.signReply(request, reply, payload));
-    new AccessPolicy(mesh.self.id, workgroupId, key, localToken).install(this.app);
+    new AccessPolicy(mesh.self.id, workgroupId, key, localToken, trust).install(this.app);
     new ClusterRoutes(mesh).register(this.app);
-    new A2aRoutes(tasks).register(this.app);
+    new A2aRoutes(tasks, mesh.self.id).register(this.app);
     new BlobRoutes(mesh, publishRoot).register(this.app);
   }
 

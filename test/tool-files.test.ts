@@ -21,6 +21,7 @@ import type { OptionalService } from "../src/plugin/services.ts";
 import { createGatewayHarness } from "./fixtures/gateway.ts";
 import { fakeNodeId } from "./fixtures/ids.ts";
 import { podRunning } from "./fixtures/pod.ts";
+import { canSymlink } from "./support/symlink.ts";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -89,7 +90,13 @@ describe("orca_pod publish", () => {
     const outside = tempRoot();
     writeFileSync(join(root, "notes.md"), "notes");
     writeFileSync(join(outside, "secret.txt"), "secret");
-    symlinkSync(join(outside, "secret.txt"), join(root, "escape.txt"));
+    // Windows without Developer Mode cannot create the link; the escape case is then
+    // not set up and the rest of the refusals still hold.
+    let symlinked = false;
+    if (canSymlink()) {
+      symlinkSync(join(outside, "secret.txt"), join(root, "escape.txt"));
+      symlinked = true;
+    }
     const published: string[] = [];
     const node = {
       mesh: {
@@ -110,7 +117,9 @@ describe("orca_pod publish", () => {
       await expect(call({ method: "publish", path: join(outside, "secret.txt") })).rejects.toThrow(
         /does not allow publishing/,
       );
-      await expect(call({ method: "publish", path: "escape.txt" })).rejects.toThrow(/does not allow publishing/);
+      if (symlinked) {
+        await expect(call({ method: "publish", path: "escape.txt" })).rejects.toThrow(/does not allow publishing/);
+      }
     }
     expect(published).toEqual([join(root, "notes.md")]);
   });

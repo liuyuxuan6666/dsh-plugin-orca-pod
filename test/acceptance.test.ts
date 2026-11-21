@@ -96,7 +96,7 @@ describe("acceptance: membership under partition", () => {
     }
   });
 
-  it("lets another workgroup member read a task by id", async () => {
+  it("lets only the dispatching origin read a task by id", async () => {
     const mesh = await createMesh({ orcaNodes: 3, workgroupId: WORKGROUP, password: PASSWORD });
     try {
       const [a, b, c] = mesh.orcaNodes;
@@ -111,9 +111,11 @@ describe("acceptance: membership under partition", () => {
       }
       expect(view.status.state).toBe("completed");
 
-      const asC = await c.mesh.resolve(b.mesh.self.endpoints[0]!).getTask(created.id);
-      expect(asC.id).toBe(created.id);
-      expect(asC.status.state).toBe("completed");
+      // A task id used to be a capability for the whole workgroup; it is now readable
+      // only by the origin that dispatched it (§6.5).
+      await expect(c.mesh.resolve(b.mesh.self.endpoints[0]!).getTask(created.id)).rejects.toMatchObject({
+        code: "not_task_origin",
+      });
     } finally {
       await mesh.stop();
     }

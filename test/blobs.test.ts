@@ -11,6 +11,7 @@ import type { BusyState } from "../src/task/wire.ts";
 import type { SingleSlotTaskRunner } from "../src/task/runner.ts";
 import { createGatewayHarness, type GatewayHarness } from "./fixtures/gateway.ts";
 import { createTestRunner, openDb, tempDir } from "./fixtures/runner.ts";
+import { canSymlink } from "./support/symlink.ts";
 import { generateNodeIdentity } from "../src/plugin/stores.ts";
 
 const createHarness = (tasks?: SingleSlotTaskRunner, blobs?: FileBlobRegistry): GatewayHarness =>
@@ -198,10 +199,17 @@ describe("local routes", () => {
     const harness = createHarness();
     const secret = await localFile("host secret", "secret.txt");
     const escaped = join(harness.publishRoot, "link.txt");
-    await symlink(secret, escaped);
+    // Windows without Developer Mode cannot make the symlink at all: the escape
+    // case is then not set up, and the other refusals still hold.
+    const symlinked =
+      canSymlink() &&
+      (await symlink(secret, escaped).then(
+        () => true,
+        () => false,
+      ));
     const traversal = join(harness.publishRoot, "..", "nonexistent.txt");
 
-    for (const path of [secret, escaped, traversal, harness.publishRoot]) {
+    for (const path of [secret, ...(symlinked ? [escaped] : []), traversal, harness.publishRoot]) {
       const response = await harness.app.inject({
         method: "POST",
         url: "/local/blobs",
