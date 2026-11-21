@@ -275,8 +275,9 @@ export function SidebarAction({ wide }: { wide?: boolean }) {
       <span className={css.sidebarIcon} data-light={light}>
         <MeshLight />
       </span>
-      {wide === false ? null : <span className={css.sidebarLabel}>{t("nav")}</span>}
-      {wide !== false && pending > 0 ? <Tag tone={"warning"}>{pending}</Tag> : null}
+      {/* A 32px foot button has no room for the name (the strip does not wrap); the count rides
+          as a corner badge, the name lives in title/aria-label above. */}
+      {pending > 0 ? <span className={css.sidebarBadge}>{pending}</span> : null}
     </button>
   );
 }
